@@ -1,0 +1,30 @@
+---
+title: "W241 Power Analysis R Notebook"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+```{r install libraries}
+# install.packages(c("pwr", "data.table","sandwich","stargazer"))
+```
+
+```{r load}
+# Library Imports
+library(data.table)
+library(pwr) 
+```
+
+# Power Analysis
+
+$H_0$: $µ_t = µ_c$ - There is no significant difference in the average survey quizlet results before the control and the treatment groups. 
+
+$H_a$: $µ_t \neq µ_c$
+
+Using a two-tailed test:
+
+```{r sample size}
+pwr.t.test(sig.level = 0.05,
+           alternative = "two.sided",
+           power = 0.80,
+           d = .5)
+```

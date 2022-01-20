@@ -1,1 +1,2 @@
-# experiment_subliminal_investigation
+# w241-subliminal-investigation
+w241 Project Team Repository on Subliminal Investigation

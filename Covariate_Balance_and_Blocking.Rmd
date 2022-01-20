@@ -1,0 +1,89 @@
+---
+title: "Covariate Balance and Blocking"
+author: "Toby Petty"
+date: "02/12/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load packages, warning=FALSE, echo=FALSE, message=FALSE}
+library(data.table)
+library(sandwich)
+library(lmtest)
+library(AER) 
+library(ggplot2) 
+library(patchwork)
+```
+
+```{r load and clean survey response data}
+d <- fread('./data/survey-responses.csv', header = TRUE)
+
+# Questions 8 - 17 are the quiz
+setnames(
+  x = d,
+  old =c("SC0","Q_RecaptchaScore","Q2","Q3","Q4","Q6",
+         "Q18","Q19","Q20","Q21","Q26"),
+  new =c("score","bot_response","interest","experience",
+         "sub_treatment","sub_control","used_ext",
+         "gender","age","education",
+         "country")
+)
+# make all columns lowercase
+setnames(d, tolower(names(d[1:ncol(d)])))
+
+# Remove invalid data if experience has NA values - no randomization occurred
+d <-d[!is.na(experience)]
+
+# count the no of questions answered
+d[,quiz_count:=(10 - (is.na(q8) + is.na(q9) + + is.na(q10) +
+                      is.na(q11)+ is.na(q12)+ is.na(q13) + 
+                      is.na(q14)+ is.na(q15)+ is.na(q16)+ is.na(q17)))]
+
+# convert posix timestamps into dates
+d[,`:=`(startdate=as.POSIXct(startdate), enddate=as.POSIXct(enddate))]
+
+# Remove pilot group as well as those uninterested in Data Science (Question 2)
+d <- d[startdate > '2021-11-12 19:00' & interest == 1 ]
+
+# Remove Bot responses (scores will be less than 0.5)
+# d <- d[bot_response >= 0.5]
+paste('Total valid responses: ',nrow(d))
+
+
+# mark treatment and control groups
+d[,subliminal:=ifelse(test = d[,is.na(sub_treatment)], 0, 1)]
+d[,experience_ind:=ifelse(test = d[,experience > 2], 1, 0)]
+paste('No of people in treatment', nrow(d[subliminal==1]))
+paste('No of people in control', nrow(d[subliminal==0]))
+```
+
+```{r}
+head(d)
+```
+
+# Covariate Balance
+
+```{r covariate balance regression}
+cov_balance <- d[,lm(subliminal ~ gender + age + education + country)]
+coeftest(cov_balance, vcov = vcovHC(cov_balance, type="HC3"))
+```
+
+# Results
+
+T-tests to check if the scores achieved are better than would be expected if participants just randomly guessed.
+
+```{r t-test that scores are better than random}
+t.test(d$score, mu = 2.5)
+```
+
+```{r t-test that control group scores are better than random}
+t.test(d[d$subliminal == 0]$score, mu = 2.5)
+```
+
+```{r t-test that treatment group scores are better than random}
+t.test(d[d$subliminal == 1]$score, mu = 2.5)
+```
+

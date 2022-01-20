@@ -1,0 +1,161 @@
+---
+title: "W241 Final Project: Subliminal Investigation"
+date: "12/10/2020"
+author: "Amit Karandikar"
+output: pdf_document
+---
+
+```{r load packages, warning=FALSE, echo=FALSE, message=FALSE}
+library(data.table)
+library(sandwich)
+library(lmtest)
+library(AER) 
+library(ggplot2) 
+library(patchwork)
+```
+
+```{r load and clean survey response data}
+d <- fread('./data/survey-responses.csv', header = TRUE)
+
+# Questions 8 - 17 are the quiz
+setnames(
+  x = d,
+  old =c("SC0","Q_RecaptchaScore","Q2","Q3","Q4","Q6",
+         "Q18","Q19","Q20","Q21","Q26"),
+  new =c("score","bot_response","interest","experience",
+         "sub_treatment","sub_control","used_ext",
+         "gender","age","education",
+         "country")
+)
+# make all columns lowercase
+setnames(d, tolower(names(d[1:ncol(d)])))
+
+# Remove invalid data if experience has NA values - no randomization occurred
+d <-d[!is.na(experience)]
+
+# count the no of questions answered
+d[,questions_attempted:=(10 - (is.na(q8) + is.na(q9) + + is.na(q10) +
+                      is.na(q11)+ is.na(q12)+ is.na(q13) + 
+                      is.na(q14)+ is.na(q15)+ is.na(q16)+ is.na(q17)))]
+
+# convert posix timestamps into dates
+d[,`:=`(startdate=as.POSIXct(startdate), enddate=as.POSIXct(enddate))]
+
+# Remove pilot group as well as those uninterested in Data Science (Question 2)
+d <- d[startdate > '2021-11-12 19:00' & interest == 1 ]
+
+# Remove Bot responses (scores will be less than 0.5)
+# d <- d[bot_response >= 0.5]
+paste('Total valid responses: ',nrow(d))
+
+
+# mark treatment and control groups
+d[,subliminal:=ifelse(test = d[,is.na(sub_treatment)], 0, 1)]
+d[,experience_ind:=ifelse(test = d[,experience > 2], 1, 0)]
+paste('No of people in treatment', nrow(d[subliminal==1]))
+paste('No of people in control', nrow(d[subliminal==0]))
+```
+```{r}
+hist(d[which(d$subliminal == 0) ,]$score,  
+     xlim = c(0,10),
+     ylim = c(0, 100), col = "red", 
+     border = F, 
+     main = "Frequency of scores in treatment and control groups", 
+     xlab = "Scores", density=20, angle = 120)
+
+hist(d[which(d$subliminal == 1),]$score, 
+     xlim = c(0,10),
+     ylim = c(0, 100), col= "blue", 
+     add=T, density = 20)
+
+```
+```{r}
+require(ggplot2)
+
+dplot <- rbind(data.frame(group="Control", questions_answered = d[which(d$subliminal == 0) ,]$questions_attempted),
+               data.frame(group="Treatment", questions_answered = d[which(d$subliminal == 1) ,]$questions_attempted))
+
+ggplot(dplot, aes(x=questions_answered, fill=group, )) +
+  geom_histogram(binwidth=1, colour="black", position="dodge") +
+  theme(legend.position = "right") + scale_fill_manual(name="Priming", values =  c("#F8766D", "#00BFC4"))
+```
+
+# Calcuate the average treatment effect
+
+```{r ate}
+ate_model <- d[,lm(score ~ subliminal)]
+summary(ate_model, vcov=vcovHC)
+```
+
+# Effect of blocking
+
+```{r blocking}
+# indicator variable instead of factor , novice 0, expert 1
+ate_blocking <- d[,lm(score ~ subliminal + experience_ind)]
+summary(ate_blocking)
+```
+For this model, the estimated difference in treatment means is the average of the within-block differences. Individuals within each block are intended to be more similar based on their experience in working in the field of Data Science, and as a result, the variability of the within-block differences is expected to be smaller than the variability between two units randomly chosen from all units in the population.
+
+
+# All Covariates Model
+```{r all covariates included}
+ate_all_cov_model <- d[,lm(score ~ subliminal + gender
+                           + age + education + country 
+                           + experience_ind
+                           + subliminal*education + subliminal*gender)]
+summary(ate_all_cov_model)
+```
+
+```{r}
+stargazer::stargazer(ate_model, ate_blocking, type = 'text', 
+                     column.labels = c('Model 1','Model 2'), 
+                     dep.var.labels = c('Quiz Score'),
+                     covariate.labels = c('subliminal priming','experience'))
+```
+
+```{r}
+stargazer::stargazer(ate_model, ate_blocking, ate_all_cov_model, type = 'text')
+```
+
+
+```{r}
+require(dplyr)
+dplot <- rbind(data.frame(group="Treatment", question=1, correctly_answered = as.numeric(summary(d[which(d$subliminal == 1)]$q8 == 1)['TRUE'])),
+               data.frame(group="Control", question=1, correctly_answered = as.numeric(summary(d[which(d$subliminal == 0)]$q8 == 1)['TRUE'])), 
+               data.frame(group="Treatment", question=2, correctly_answered = as.numeric(summary(d[which(d$subliminal == 1)]$q9 == 3)['TRUE'])),
+               data.frame(group="Control", question=2, correctly_answered = as.numeric(summary(d[which(d$subliminal == 0)]$q9 == 3)['TRUE'])), 
+               data.frame(group="Treatment", question=3, correctly_answered = as.numeric(summary(d[which(d$subliminal == 1)]$q10 == 3)['TRUE'])),
+               data.frame(group="Control", question=3, correctly_answered = as.numeric(summary(d[which(d$subliminal == 0)]$q10 == 3)['TRUE'])), 
+               data.frame(group="Treatment", question=4, correctly_answered = as.numeric(summary(d[which(d$subliminal == 1)]$q11 == 2)['TRUE'])),
+               data.frame(group="Control", question=4, correctly_answered = as.numeric(summary(d[which(d$subliminal == 0)]$q11 == 2)['TRUE'])), 
+               data.frame(group="Treatment", question=5, correctly_answered = as.numeric(summary(d[which(d$subliminal == 1)]$q12 == 2)['TRUE'])),
+               data.frame(group="Control", question=5, correctly_answered = as.numeric(summary(d[which(d$subliminal == 0)]$q12 == 2)['TRUE'])), 
+               data.frame(group="Treatment", question=6, correctly_answered = as.numeric(summary(d[which(d$subliminal == 1)]$q13 == 1)['TRUE'])),
+               data.frame(group="Control", question=6, correctly_answered = as.numeric(summary(d[which(d$subliminal == 0)]$q13 == 1)['TRUE'])), 
+               data.frame(group="Treatment", question=7, correctly_answered = as.numeric(summary(d[which(d$subliminal == 1)]$q14 == 3)['TRUE'])),
+               data.frame(group="Control", question=7, correctly_answered = as.numeric(summary(d[which(d$subliminal == 0)]$q14 == 3)['TRUE'])), 
+               data.frame(group="Treatment", question=8, correctly_answered = as.numeric(summary(d[which(d$subliminal == 1)]$q15 == 2)['TRUE'])),
+               data.frame(group="Control", question=8, correctly_answered = as.numeric(summary(d[which(d$subliminal == 0)]$q15 == 2)['TRUE'])), 
+               data.frame(group="Treatment", question=9, correctly_answered = as.numeric(summary(d[which(d$subliminal == 1)]$q16 == 1)['TRUE'])),
+               data.frame(group="Control", question=9, correctly_answered = as.numeric(summary(d[which(d$subliminal == 0)]$q16 == 1)['TRUE'])), 
+               data.frame(group="Treatment", question=10, correctly_answered = as.numeric(summary(d[which(d$subliminal == 1)]$q17 == 1)['TRUE'])),
+               data.frame(group="Control", question=10, correctly_answered = as.numeric(summary(d[which(d$subliminal == 0)]$q17 == 1)['TRUE'])))
+
+
+ggplot(dplot, aes(x = question, y = correctly_answered, fill=group)) +
+  geom_col(position = "dodge") + scale_fill_manual(name="Priming",
+  values =  c("#F8766D", "#00BFC4"))
+```
+```{r}
+d[, correctly_answered_1:= ifelse(q8 == 1, 1, 0)]
+d
+```
+
+```{r}
+nrow(d[subliminal == 1 & correctly_answered_1==1])
+```
+
+```{r}
+ate_blocking_for_q1 <- d[,lm(correctly_answered_1 ~ subliminal + experience_ind)]
+summary(ate_blocking_for_q1)
+```
